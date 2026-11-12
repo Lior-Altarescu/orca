@@ -1,9 +1,13 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useSkillFreshness } from '@/hooks/skills/freshness/useSkillFreshness'
 import { useActiveProjectSkillRuntime } from '@/hooks/skills/runtime/useActiveProjectSkillRuntime'
 import { bundledSkillTargetKey } from '@/lib/skills/runtime/bundled-skill-target'
+import {
+  hasBlockingBodyOverlay,
+  subscribeBodyOverlayChanges
+} from '@/lib/overlay-interaction/body-overlay-attributes'
 import { translate } from '@/i18n/i18n'
 import { useAppStore } from '@/store/index'
 import {
@@ -22,7 +26,15 @@ type ActiveFreshnessNudge = {
   persistDismissal: boolean
 }
 
-export function SkillFreshnessNudge(): null {
+export function SkillFreshnessNudge({
+  startupPromptsFinished
+}: {
+  startupPromptsFinished: boolean
+}): null {
+  const blockingOverlayOpen = useSyncExternalStore(
+    subscribeBodyOverlayChanges,
+    hasBlockingBodyOverlay
+  )
   const target = useActiveProjectSkillRuntime().bundledSkillTarget
   const targetKey = target ? bundledSkillTargetKey(target) : null
   const state = useSkillFreshness(target)
@@ -42,6 +54,14 @@ export function SkillFreshnessNudge(): null {
       activeNudgeRef.current = null
       shownFingerprints.current.delete(active.fingerprint)
       toast.dismiss(active.id)
+    }
+    // Portals can mount in this commit before the observer publishes their presence.
+    if (!startupPromptsFinished || blockingOverlayOpen || hasBlockingBodyOverlay()) {
+      const active = activeNudgeRef.current
+      if (active) {
+        retract(active)
+      }
+      return
     }
     if (!target || !targetKey) {
       const active = activeNudgeRef.current
@@ -159,7 +179,17 @@ export function SkillFreshnessNudge(): null {
       }
     )
     activeNudgeRef.current = nextActive
-  }, [target, targetKey, dismissed, settingsLoaded, state.error, state.plan, updateSettings])
+  }, [
+    target,
+    targetKey,
+    blockingOverlayOpen,
+    dismissed,
+    settingsLoaded,
+    startupPromptsFinished,
+    state.error,
+    state.plan,
+    updateSettings
+  ])
 
   return null
 }
